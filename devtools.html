@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>devtools</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --text-secondary: #475569;
+    --text-dim: #94a3b8;
+    --accent: #2563eb;
+    --accent-soft: rgba(37,99,235,0.08);
+    --accent-hover: #1d4ed8;
+    --accent-light: #eff6ff;
+    --radius: 14px;
+    --radius-sm: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    height: 100vh; display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(37,99,235,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(37,99,235,0.025) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 50% at 50% 45%, black 25%, transparent 70%);
+  }
+
+  .topbar {
+    position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; flex-shrink: 0;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand {
+    display: flex; align-items: center; gap: 3px;
+    font-size: 1.15rem; font-weight: 700;
+    letter-spacing: -0.03em; color: var(--text);
+  }
+  .topbar .brand span { color: var(--accent); }
+  .brand .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); vertical-align: middle;
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .topbar .brand .dot:nth-child(2) { animation-delay: 0.2s; }
+  .topbar .brand .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.8); opacity: 0.3; }
+  }
+
+  .tabs {
+    display: flex; background: var(--bg); border-radius: 10px;
+    padding: 3px; border: 1px solid var(--border); gap: 1px;
+  }
+  .tab {
+    padding: 7px 18px; border-radius: 8px; border: none;
+    background: transparent; color: var(--text-secondary);
+    font-size: 0.8rem; font-weight: 500;
+    cursor: pointer; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); white-space: nowrap;
+    letter-spacing: -0.01em;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    background: var(--surface); color: var(--accent);
+    font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  .main {
+    position: relative; z-index: 1;
+    flex: 1; display: flex; flex-direction: column;
+    padding: 14px 20px 20px; overflow: hidden;
+    min-height: 0;
+  }
+
+  .tab-content {
+    flex: 1; display: flex; flex-direction: column; min-height: 0;
+  }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); flex: 1; display: flex; flex-direction: column;
+    box-shadow:
+      0 1px 3px rgba(0,0,0,0.03),
+      0 4px 12px rgba(0,0,0,0.04);
+    overflow: hidden; min-height: 0;
+    transition: border-color 0.3s ease;
+  }
+  .card:hover { border-color: #cbd5e1; }
+
+  .panels {
+    flex: 1; display: flex; flex-direction: column; min-height: 0;
+  }
+
+  .panel {
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .panel-input { height: 50%; }
+  .panel-output { flex: 1; min-height: 60px; }
+
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px 8px; flex-shrink: 0;
+  }
+  .panel-header .label {
+    font-size: 0.7rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .panel-header .hint {
+    font-size: 0.66rem; color: var(--text-dim);
+  }
+
+  textarea {
+    width: 100%; flex: 1; min-height: 40px;
+    padding: 0 20px 14px; background: transparent; color: var(--text);
+    border: none; font-size: 0.86rem;
+    line-height: 1.65; resize: none; outline: none;
+    transition: color 0.3s ease;
+  }
+  textarea::placeholder { color: #b0b8c4; }
+  textarea:focus::placeholder { color: #cdd3db; }
+  textarea[readonly] { cursor: default; color: var(--text-secondary); }
+
+  /* Splitter */
+  .splitter-wrap {
+    flex-shrink: 0; padding: 0 20px;
+  }
+  .splitter {
+    height: 30px; display: flex; align-items: center;
+    cursor: row-resize; user-select: none;
+    -webkit-user-select: none;
+  }
+  .splitter .line {
+    flex: 1; height: 1px; background: var(--border);
+    transition: background 0.25s ease;
+  }
+  .splitter:hover .line {
+    background: #cbd5e1;
+  }
+  .splitter .handle {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 10px;
+  }
+  .splitter .actions {
+    display: flex; gap: 8px;
+  }
+
+  .btn {
+    padding: 7px 16px; border-radius: 7px;
+    font-size: 0.76rem; font-weight: 600;
+    letter-spacing: -0.01em; cursor: pointer; transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    display: inline-flex; align-items: center; gap: 5px;
+    border: none; white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--accent); color: #fff;
+    box-shadow: 0 1px 2px rgba(37,99,235,0.25);
+  }
+  .btn-primary:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 2px 6px rgba(37,99,235,0.3), 0 1px 3px rgba(37,99,235,0.15);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active { transform: translateY(0); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .btn-secondary {
+    background: var(--surface); color: var(--text-secondary);
+    border: 1.5px solid var(--border);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .btn-secondary:hover {
+    border-color: var(--accent); color: var(--accent);
+    background: var(--accent-light);
+  }
+
+  .btn-icon {
+    background: transparent; border: 1.5px solid var(--border);
+    color: var(--text-secondary); padding: 6px 12px; border-radius: 8px;
+    font-size: 0.72rem; font-weight: 600;
+    cursor: pointer; transition: all 0.2s ease;
+  }
+  .btn-icon:hover {
+    border-color: var(--accent); color: var(--accent);
+    background: var(--accent-light);
+    box-shadow: 0 1px 3px rgba(37,99,235,0.08);
+  }
+
+  .toast {
+    position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%) translateY(12px);
+    background: var(--text); color: #fff; padding: 10px 22px; border-radius: 10px;
+    font-size: 0.82rem; font-weight: 500;
+    opacity: 0; pointer-events: none; z-index: 100;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  body.splitter-dragging { cursor: row-resize; }
+  body.splitter-dragging * { cursor: row-resize !important; }
+
+  /* Color Tab */
+  .color-section-body {
+    padding: 10px 20px 14px; display: flex; gap: 16px; align-items: flex-start; flex: 1; overflow-y: auto;
+  }
+  .color-swatch {
+    width: 80px; height: 80px; border-radius: 12px; flex-shrink: 0;
+    border: 2px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    transition: background 0.15s ease;
+  }
+  .color-swatch.empty {
+    background: repeating-conic-gradient(#e2e8f0 0% 25%, transparent 0% 50%) 50% / 12px 12px;
+  }
+  .color-details {
+    flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  }
+  .color-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; background: var(--bg); border-radius: 7px;
+    border: 1px solid var(--border);
+  }
+  .color-row .label {
+    font-size: 0.66rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.06em; width: 32px; flex-shrink: 0;
+  }
+  .color-row .value {
+    flex: 1; font-size: 0.82rem;
+    font-weight: 500; color: var(--text); letter-spacing: 0.01em;
+    user-select: all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .color-row .copy-btn {
+    background: transparent; border: none; color: var(--text-dim);
+    cursor: pointer; padding: 3px 8px; border-radius: 5px;
+    font-size: 0.64rem; font-weight: 600; transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .color-row .copy-btn:hover { color: var(--accent); background: var(--accent-soft); }
+
+  .color-input-row {
+    display: flex; gap: 8px;
+  }
+  .color-input-row input {
+    flex: 1; padding: 8px 12px; border: 1.5px solid var(--border);
+    border-radius: 7px; font-size: 0.82rem;
+    background: var(--bg); color: var(--text); outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .color-input-row input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .color-input-row input::placeholder { color: var(--text-dim); }
+
+  .picker-history {
+    display: flex; gap: 6px; flex-wrap: wrap; padding-top: 4px;
+  }
+  .history-dot {
+    width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--border);
+    cursor: pointer; transition: transform 0.15s ease;
+  }
+  .history-dot:hover { transform: scale(1.2); box-shadow: 0 2px 6px rgba(0,0,0,0.1); z-index: 2; }
+
+  /* QR Tab */
+  .qr-decode-body {
+    padding: 10px 20px 14px; display: flex; gap: 14px; align-items: stretch; flex: 1;
+    min-height: 160px;
+  }
+  .qr-dropzone {
+    width: 180px; min-height: 120px; flex-shrink: 0;
+    border: 2px dashed var(--border); border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; cursor: pointer; transition: all 0.2s;
+    color: var(--text-dim); background: var(--bg);
+  }
+  .qr-dropzone:hover, .qr-dropzone.drag-over {
+    border-color: var(--accent); color: var(--accent);
+    background: var(--accent-light);
+  }
+  .qr-dropzone img {
+    width: 100%; height: 100%; object-fit: contain; border-radius: 8px;
+  }
+  .qr-dropzone .icon { font-size: 2rem; }
+  .qr-dropzone .text { font-size: 0.7rem; font-weight: 500; text-align: center; line-height: 1.3; }
+  .qr-decode-result {
+    flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center;
+  }
+  .qr-result-box {
+    padding: 10px 14px; background: var(--bg); border-radius: 7px;
+    border: 1px solid var(--border); font-size: 0.82rem; color: var(--text);
+    word-break: break-all; white-space: pre-wrap; line-height: 1.5; min-height: 40px;
+  }
+  .qr-result-box.empty { color: var(--text-dim); }
+  .qr-result-actions { display: flex; gap: 8px; }
+
+  .qr-gen-body {
+    padding: 10px 20px 14px; display: flex; gap: 20px; align-items: center; flex: 1;
+  }
+  .qr-gen-left {
+    flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  }
+  .qr-gen-left textarea {
+    width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
+    border-radius: 7px; font-size: 0.84rem; min-height: 80px;
+    background: var(--bg); color: var(--text); outline: none; resize: vertical;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    line-height: 1.55;
+  }
+  .qr-gen-left textarea:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .qr-gen-left textarea::placeholder { color: var(--text-dim); }
+  .qr-gen-left .btn { align-self: flex-start; }
+  .qr-gen-output {
+    flex-shrink: 0; width: 200px; height: 200px; border: 1.5px solid var(--border);
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); overflow: hidden;
+  }
+  .qr-gen-output canvas, .qr-gen-output img { width: 180px; height: 180px; }
+  .qr-gen-output .placeholder {
+    color: var(--text-dim); font-size: 0.72rem; text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    .topbar { padding: 12px 16px; }
+    .topbar .brand { font-size: 1rem; }
+    .tab { padding: 6px 12px; font-size: 0.75rem; }
+    .main { padding: 10px 12px 16px; }
+    .panel-header { padding: 12px 14px 6px; }
+    textarea { padding: 0 16px 12px; font-size: 0.82rem; }
+    .splitter-wrap { padding: 0 16px; }
+    .btn { padding: 5px 12px; font-size: 0.74rem; }
+    .color-section-body { flex-direction: column; align-items: stretch; padding: 8px 14px 12px; }
+    .color-swatch { width: 64px; height: 64px; align-self: center; }
+    .qr-decode-body { flex-direction: column; padding: 8px 14px 12px; }
+    .qr-dropzone { width: 100%; height: 100px; }
+    .qr-gen-body { flex-direction: column; align-items: stretch; padding: 8px 14px 12px; }
+    .qr-gen-output { width: 160px; height: 160px; align-self: center; }
+    .qr-gen-output canvas, .qr-gen-output img { width: 140px; height: 140px; }
+    .tab { padding: 6px 10px; font-size: 0.72rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">dev<span>tools</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+  <div class="tabs">
+    <button class="tab active" data-tab="url" onclick="switchTab('url')">URL Codec</button>
+    <button class="tab" data-tab="base64" onclick="switchTab('base64')">Base64 Codec</button>
+    <button class="tab" data-tab="color" onclick="switchTab('color')">颜色</button>
+    <button class="tab" data-tab="qr" onclick="switchTab('qr')">二维码</button>
+  </div>
+  <div></div>
+</div>
+
+<div class="main">
+  <!-- URL -->
+  <div class="tab-content" id="tab-url">
+    <div class="card">
+      <div class="panels" id="urlPanels">
+        <div class="panel panel-input" id="urlInputPanel">
+          <div class="panel-header">
+            <span class="label">输入</span>
+            <span class="hint">Ctrl + Enter 编码</span>
+          </div>
+          <textarea id="urlInput" placeholder="粘贴 URL 或需要编解码的文本..."></textarea>
+        </div>
+        <div class="splitter-wrap"><div class="splitter" id="urlSplitter">
+          <div class="line"></div>
+          <div class="handle">
+            <div class="actions">
+              <button class="btn btn-primary" onclick="urlEncode()">编码</button>
+              <button class="btn btn-secondary" onclick="urlDecode()">解码</button>
+              <button class="btn-icon" onclick="copyResult('urlInput')">复制输入</button>
+              <button class="btn-icon" onclick="copyResult('urlOutput')">复制输出</button>
+            </div>
+          </div>
+          <div class="line"></div>
+        </div></div>
+        <div class="panel panel-output" id="urlOutputPanel">
+          <div class="panel-header"><span class="label">输出</span></div>
+          <textarea id="urlOutput" readonly placeholder="点击编码或解码按钮查看结果..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Base64 -->
+  <div class="tab-content" id="tab-base64" style="display:none">
+    <div class="card">
+      <div class="panels" id="b64Panels">
+        <div class="panel panel-input" id="b64InputPanel">
+          <div class="panel-header">
+            <span class="label">输入</span>
+            <span class="hint">Ctrl + Enter 编码</span>
+          </div>
+          <textarea id="b64Input" placeholder="粘贴文本或 Base64 字符串..."></textarea>
+        </div>
+        <div class="splitter-wrap"><div class="splitter" id="b64Splitter">
+          <div class="line"></div>
+          <div class="handle">
+            <div class="actions">
+              <button class="btn btn-primary" onclick="b64Encode()">编码</button>
+              <button class="btn btn-secondary" onclick="b64Decode()">解码</button>
+              <button class="btn-icon" onclick="copyResult('b64Input')">复制输入</button>
+              <button class="btn-icon" onclick="copyResult('b64Output')">复制输出</button>
+            </div>
+          </div>
+          <div class="line"></div>
+        </div></div>
+        <div class="panel panel-output" id="b64OutputPanel">
+          <div class="panel-header"><span class="label">输出</span></div>
+          <textarea id="b64Output" readonly placeholder="点击编码或解码按钮查看结果..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Color -->
+  <div class="tab-content" id="tab-color" style="display:none">
+    <div class="card">
+      <div class="panels" id="colorPanels">
+        <div class="panel panel-input" id="pickerPanel">
+          <div class="panel-header"><span class="label">屏幕取色</span></div>
+          <div class="color-section-body">
+            <div class="color-swatch empty" id="pickerSwatch"></div>
+            <div class="color-details" id="pickerDetails" style="display:none">
+              <div class="color-row">
+                <span class="label">HEX</span>
+                <span class="value" id="pickerHex">—</span>
+                <button class="copy-btn" onclick="copyColorVal('pickerHex')">复制</button>
+              </div>
+              <div class="color-row">
+                <span class="label">RGB</span>
+                <span class="value" id="pickerRgb">—</span>
+                <button class="copy-btn" onclick="copyColorVal('pickerRgb')">复制</button>
+              </div>
+              <div class="color-row">
+                <span class="label">HSL</span>
+                <span class="value" id="pickerHsl">—</span>
+                <button class="copy-btn" onclick="copyColorVal('pickerHsl')">复制</button>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:4px">
+                <button class="btn btn-primary" onclick="pickColor()" style="font-size:0.74rem;padding:6px 14px">屏幕取色</button>
+              </div>
+            </div>
+            <div class="color-details" id="pickerPlaceholder" style="justify-content:center;align-items:center">
+              <button class="btn btn-primary" onclick="pickColor()">屏幕取色</button>
+            </div>
+          </div>
+          <div style="padding:4px 20px 10px"><div class="picker-history" id="pickerHistory"></div></div>
+        </div>
+
+        <div class="splitter-wrap"><div class="splitter" id="colorSplitter">
+          <div class="line"></div><div class="handle"></div><div class="line"></div>
+        </div></div>
+
+        <div class="panel panel-output" id="convPanel">
+          <div class="panel-header"><span class="label">格式转换</span></div>
+          <div class="color-section-body" style="flex:1">
+            <div class="color-swatch empty" id="convSwatch"></div>
+            <div class="color-details" style="flex:1">
+              <div class="color-input-row">
+                <input type="text" id="colorInput" placeholder="输入颜色值，如 #2563eb / rgb(37,99,235) / hsl(221,83%,53%)" oninput="parseInputColor()">
+              </div>
+              <div class="color-row" style="margin-top:2px">
+                <span class="label">HEX</span>
+                <span class="value" id="convHex">—</span>
+                <button class="copy-btn" onclick="copyColorVal('convHex')">复制</button>
+              </div>
+              <div class="color-row">
+                <span class="label">RGB</span>
+                <span class="value" id="convRgb">—</span>
+                <button class="copy-btn" onclick="copyColorVal('convRgb')">复制</button>
+              </div>
+              <div class="color-row">
+                <span class="label">HSL</span>
+                <span class="value" id="convHsl">—</span>
+                <button class="copy-btn" onclick="copyColorVal('convHsl')">复制</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR -->
+  <div class="tab-content" id="tab-qr" style="display:none">
+    <div class="card">
+      <div class="panels" id="qrPanels">
+        <div class="panel panel-input" id="qrDecodePanel">
+          <div class="panel-header"><span class="label">识别二维码</span></div>
+          <div class="qr-decode-body">
+            <div class="qr-dropzone" id="qrDropzone" onclick="document.getElementById('qrFileInput').click()">
+              <span class="icon">📷</span>
+              <span class="text">点击选择图片<br>或 Ctrl+V 粘贴</span>
+            </div>
+            <input type="file" id="qrFileInput" accept="image/*" style="display:none" onchange="handleQrFile(this)">
+            <canvas id="qrDecodeCanvas" style="display:none"></canvas>
+            <div class="qr-decode-result">
+              <div class="qr-result-box empty" id="qrDecodeResult">等待识别二维码...</div>
+              <div class="qr-result-actions">
+                <button class="btn btn-icon" id="qrCopyBtn" onclick="copyQrResult()" style="display:none">复制内容</button>
+                <button class="btn btn-primary" id="qrOpenBtn" onclick="openQrUrl()" style="display:none">打开链接</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="splitter-wrap"><div class="splitter" id="qrSplitter">
+          <div class="line"></div><div class="handle"></div><div class="line"></div>
+        </div></div>
+
+        <div class="panel panel-output" id="qrGenPanel">
+          <div class="panel-header"><span class="label">生成二维码</span></div>
+          <div class="qr-gen-body">
+            <div class="qr-gen-left">
+              <textarea id="qrInput" placeholder="输入文字或链接，支持多行..."></textarea>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-primary" onclick="generateQr()">生成二维码</button>
+                <button class="btn btn-icon" id="qrCopyImgBtn" onclick="copyQrImage()" style="display:none">复制图片</button>
+              </div>
+            </div>
+            <div class="qr-gen-output" id="qrGenOutput">
+              <span class="placeholder">QR Code</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  已复制到剪贴板
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('tab-url').style.display = tab === 'url' ? 'flex' : 'none';
+  document.getElementById('tab-base64').style.display = tab === 'base64' ? 'flex' : 'none';
+  document.getElementById('tab-color').style.display = tab === 'color' ? 'flex' : 'none';
+  document.getElementById('tab-qr').style.display = tab === 'qr' ? 'flex' : 'none';
+}
+
+function copyResult(id) {
+  const ta = document.getElementById(id);
+  navigator.clipboard.writeText(ta.value).catch(() => { ta.select(); document.execCommand('copy'); });
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+function urlEncode() {
+  try { document.getElementById('urlOutput').value = encodeURIComponent(document.getElementById('urlInput').value); }
+  catch(e) { document.getElementById('urlOutput').value = 'Error: ' + e.message; }
+}
+function urlDecode() {
+  try { document.getElementById('urlOutput').value = decodeURIComponent(document.getElementById('urlInput').value); }
+  catch(e) { document.getElementById('urlOutput').value = 'Error: ' + e.message + '\n请确认输入是有效的 URL 编码字符串'; }
+}
+
+function b64Encode() {
+  try {
+    const bytes = new TextEncoder().encode(document.getElementById('b64Input').value);
+    let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+    document.getElementById('b64Output').value = btoa(bin);
+  } catch(e) { document.getElementById('b64Output').value = 'Error: ' + e.message; }
+}
+function b64Decode() {
+  try {
+    const bin = atob(document.getElementById('b64Input').value.trim());
+    const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
+    document.getElementById('b64Output').value = new TextDecoder().decode(bytes);
+  } catch(e) { document.getElementById('b64Output').value = 'Error: ' + e.message + '\n请确认输入是有效的 Base64 字符串'; }
+}
+
+// --- Color ---
+const colorHistory = [];
+const MAX_HISTORY = 18;
+
+function hexToRgb(hex) {
+  const h = hex.replace('#','');
+  return { r: parseInt(h.substring(0,2), 16), g: parseInt(h.substring(2,4), 16), b: parseInt(h.substring(4,6), 16) };
+}
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(x => {
+    const v = Math.max(0, Math.min(255, Math.round(x)));
+    return v.toString(16).padStart(2, '0');
+  }).join('');
+}
+function hexToHsl(hex) {
+  let { r, g, b } = hexToRgb(hex);
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0, l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+function hslToRgb(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(100, s)) / 100;
+  l = Math.max(0, Math.min(100, l)) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+}
+function parseColorString(str) {
+  str = str.trim();
+  if (!str) return null;
+  const hexMatch = str.match(/^#?([0-9a-fA-F]{3,8})$/);
+  if (hexMatch) {
+    let h = hexMatch[1];
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    if (h.length >= 6) {
+      return rgbToHex(parseInt(h.substring(0,2),16), parseInt(h.substring(2,4),16), parseInt(h.substring(4,6),16));
+    }
+  }
+  const rgbMatch = str.match(/rgba?\(\s*(\d+)\s*[, ]\s*(\d+)\s*[, ]\s*(\d+)\s*(?:[,/]\s*[\d.]+\s*)?\)/i);
+  if (rgbMatch) return rgbToHex(+rgbMatch[1], +rgbMatch[2], +rgbMatch[3]);
+  const hslMatch = str.match(/hsla?\(\s*(\d+)\s*[, ]\s*(\d+)%\s*[, ]\s*(\d+)%\s*(?:[,/]\s*[\d.]+\s*)?\)/i);
+  if (hslMatch) {
+    const rgb = hslToRgb(+hslMatch[1], +hslMatch[2], +hslMatch[3]);
+    return rgbToHex(rgb.r, rgb.g, rgb.b);
+  }
+  return null;
+}
+function displayColor(hex, prefix) {
+  const swatch = document.getElementById(prefix + 'Swatch');
+  const details = document.getElementById(prefix + 'Details');
+  const placeholder = document.getElementById(prefix + 'Placeholder');
+  const { r, g, b } = hexToRgb(hex);
+  const { h, s, l } = hexToHsl(hex);
+  swatch.style.background = hex;
+  swatch.classList.remove('empty');
+  if (details) details.style.display = 'flex';
+  if (placeholder) placeholder.style.display = 'none';
+  const hexEl = document.getElementById(prefix + 'Hex');
+  const rgbEl = document.getElementById(prefix + 'Rgb');
+  const hslEl = document.getElementById(prefix + 'Hsl');
+  if (hexEl) hexEl.textContent = hex.toUpperCase();
+  if (rgbEl) rgbEl.textContent = `rgb(${r}, ${g}, ${b})`;
+  if (hslEl) hslEl.textContent = `hsl(${h}, ${s}%, ${l}%)`;
+}
+function addHistory(hex) {
+  if (colorHistory[0] !== hex) {
+    colorHistory.unshift(hex);
+    if (colorHistory.length > MAX_HISTORY) colorHistory.pop();
+  }
+  renderPickerHistory();
+}
+function renderPickerHistory() {
+  const container = document.getElementById('pickerHistory');
+  if (!container) return;
+  container.innerHTML = colorHistory.map(h =>
+    `<div class="history-dot" style="background:${h}" onclick="displayColor('${h}','picker')" title="${h.toUpperCase()}"></div>`
+  ).join('');
+}
+function parseInputColor() {
+  const input = document.getElementById('colorInput');
+  if (!input) return;
+  const hex = parseColorString(input.value);
+  if (hex) {
+    displayColor(hex, 'conv');
+    input.value = hex.toUpperCase();
+  }
+}
+function copyColorVal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent).catch(() => {
+    const r = document.createRange(); r.selectNodeContents(el);
+    window.getSelection().removeAllRanges(); window.getSelection().addRange(r);
+    document.execCommand('copy');
+  });
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1600);
+}
+async function pickColor() {
+  if (!window.EyeDropper) {
+    alert('当前浏览器不支持 EyeDropper，请使用 Chrome 95+ 或 Edge 95+');
+    return;
+  }
+  try {
+    const result = await new EyeDropper().open();
+    displayColor(result.sRGBHex, 'picker');
+    addHistory(result.sRGBHex);
+  } catch (e) {}
+}
+
+// Enter to convert
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('colorInput');
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') parseInputColor(); });
+});
+
+// --- Draggable Splitter ---
+function initSplitter(splitterId, inputPanelId, outputPanelId) {
+  const bar = document.getElementById(splitterId);
+  const inputPanel = document.getElementById(inputPanelId);
+  const outputPanel = document.getElementById(outputPanelId);
+  let dragging = false, startY, startHeight;
+  bar.addEventListener('mousedown', e => {
+    dragging = true;
+    startY = e.clientY;
+    startHeight = inputPanel.offsetHeight;
+    document.body.classList.add('splitter-dragging');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const panels = inputPanel.parentElement;
+    const totalHeight = panels.offsetHeight - bar.parentElement.offsetHeight;
+    let newHeight = startHeight + (e.clientY - startY);
+    newHeight = Math.max(60, Math.min(newHeight, totalHeight - 60));
+    inputPanel.style.height = newHeight + 'px';
+    inputPanel.style.flex = 'none';
+    outputPanel.style.flex = '1';
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragging) { dragging = false; document.body.classList.remove('splitter-dragging'); }
+  });
+}
+initSplitter('urlSplitter', 'urlInputPanel', 'urlOutputPanel');
+initSplitter('b64Splitter', 'b64InputPanel', 'b64OutputPanel');
+initSplitter('colorSplitter', 'pickerPanel', 'convPanel');
+initSplitter('qrSplitter', 'qrDecodePanel', 'qrGenPanel');
+
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') urlEncode();
+});
+document.getElementById('b64Input').addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') b64Encode();
+});
+
+// --- QR Code ---
+let decodedQrText = '';
+
+function handleQrFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => decodeQrImage(e.target.result);
+  reader.readAsDataURL(file);
+}
+
+function decodeQrImage(dataUrl) {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById('qrDecodeCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, canvas.width, canvas.height);
+    const resultEl = document.getElementById('qrDecodeResult');
+    const copyBtn = document.getElementById('qrCopyBtn');
+    const openBtn = document.getElementById('qrOpenBtn');
+    if (code) {
+      decodedQrText = code.data;
+      resultEl.textContent = code.data;
+      resultEl.classList.remove('empty');
+      copyBtn.style.display = 'inline-flex';
+      const isUrl = /^https?:\/\//i.test(code.data);
+      openBtn.style.display = isUrl ? 'inline-flex' : 'none';
+    } else {
+      decodedQrText = '';
+      resultEl.textContent = '未识别到二维码，请确认图片包含有效的二维码';
+      resultEl.classList.add('empty');
+      copyBtn.style.display = 'none';
+      openBtn.style.display = 'none';
+    }
+    const dz = document.getElementById('qrDropzone');
+    dz.innerHTML = `<img src="${dataUrl}" alt="qr">`;
+    dz.onclick = () => document.getElementById('qrFileInput').click();
+  };
+  img.src = dataUrl;
+}
+
+function copyQrResult() {
+  if (!decodedQrText) return;
+  navigator.clipboard.writeText(decodedQrText).catch(() => {});
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+function openQrUrl() {
+  if (decodedQrText && /^https?:\/\//i.test(decodedQrText)) {
+    window.open(decodedQrText, '_blank');
+  }
+}
+
+// Paste handler
+document.addEventListener('paste', e => {
+  const qrTab = document.getElementById('tab-qr');
+  if (!qrTab || qrTab.style.display === 'none') return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const blob = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = ev => decodeQrImage(ev.target.result);
+      reader.readAsDataURL(blob);
+      break;
+    }
+  }
+});
+
+// Drop handler
+const dz = document.getElementById('qrDropzone');
+if (dz) {
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = ev => decodeQrImage(ev.target.result);
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+function generateQr() {
+  const input = document.getElementById('qrInput');
+  const output = document.getElementById('qrGenOutput');
+  const text = input.value.trim();
+  if (!text) return;
+  output.innerHTML = '';
+  new QRCode(output, {
+    text: text,
+    width: 180,
+    height: 180,
+    colorDark: '#0f172a',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M
+  });
+  document.getElementById('qrCopyImgBtn').style.display = 'inline-flex';
+}
+
+function copyQrImage() {
+  const output = document.getElementById('qrGenOutput');
+  const canvas = output.querySelector('canvas');
+  const img = output.querySelector('img');
+  if (canvas) {
+    canvas.toBlob(blob => {
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(() => showQrCopied()).catch(() => showQrCopied());
+    });
+  } else if (img) {
+    // qrcodejs may render as img
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    c.getContext('2d').drawImage(img, 0, 0);
+    c.toBlob(blob => {
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(() => showQrCopied()).catch(() => showQrCopied());
+    });
+  }
+}
+
+function showQrCopied() {
+  const t = document.getElementById('toast');
+  t.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 二维码已复制';
+  t.classList.add('show');
+  setTimeout(() => {
+    t.classList.remove('show');
+    t.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 已复制到剪贴板';
+  }, 1800);
+}
+</script>
+</body>
+</html>
