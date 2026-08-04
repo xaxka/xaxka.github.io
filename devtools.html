@@ -402,14 +402,14 @@
 <div class="topbar">
   <div class="brand">dev<span>tools</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
   <div class="tabs">
-    <button class="tab active" data-tab="url" onclick="switchTab('url')">URL Codec</button>
-    <button class="tab" data-tab="base64" onclick="switchTab('base64')">Base64 Codec</button>
+    <button class="tab active" data-tab="url" onclick="switchTab('url')">URL</button>
+    <button class="tab" data-tab="base64" onclick="switchTab('base64')">Base64</button>
     <button class="tab" data-tab="color" onclick="switchTab('color')">颜色</button>
     <button class="tab" data-tab="qr" onclick="switchTab('qr')">二维码</button>
   </div>
   <select class="tab-select" id="tabSelect" onchange="switchTab(this.value)">
-    <option value="url">URL Codec</option>
-    <option value="base64">Base64 Codec</option>
+    <option value="url">URL</option>
+    <option value="base64">Base64</option>
     <option value="color">颜色</option>
     <option value="qr">二维码</option>
   </select>
@@ -424,7 +424,10 @@
         <div class="panel panel-input" id="urlInputPanel">
           <div class="panel-header">
             <span class="label">输入</span>
-            <span class="hint">Ctrl + Enter 编码</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button class="btn-icon" onclick="copyResult('urlInput')">复制</button>
+              <span class="hint">Ctrl + Enter 编码</span>
+            </div>
           </div>
           <textarea id="urlInput" placeholder="粘贴 URL 或需要编解码的文本..."></textarea>
         </div>
@@ -434,14 +437,16 @@
             <div class="actions">
               <button class="btn btn-primary" onclick="urlEncode()">编码</button>
               <button class="btn btn-secondary" onclick="urlDecode()">解码</button>
-              <button class="btn-icon" onclick="copyResult('urlInput')">复制输入</button>
-              <button class="btn-icon" onclick="copyResult('urlOutput')">复制输出</button>
+              <button class="btn-icon" onclick="swapIO('urlInput','urlOutput')" title="交换输入输出">交换</button>
             </div>
           </div>
           <div class="line"></div>
         </div></div>
         <div class="panel panel-output" id="urlOutputPanel">
-          <div class="panel-header"><span class="label">输出</span></div>
+          <div class="panel-header">
+            <span class="label">输出</span>
+            <button class="btn-icon" onclick="copyResult('urlOutput')">复制</button>
+          </div>
           <textarea id="urlOutput" readonly placeholder="点击编码或解码按钮查看结果..."></textarea>
         </div>
       </div>
@@ -455,7 +460,12 @@
         <div class="panel panel-input" id="b64InputPanel">
           <div class="panel-header">
             <span class="label">输入</span>
-            <span class="hint">Ctrl + Enter 编码</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="file" id="b64FileInput" style="display:none" onchange="handleB64File(this)">
+              <button class="btn-icon" onclick="document.getElementById('b64FileInput').click()" title="选择文件">📁 文件</button>
+              <button class="btn-icon" onclick="copyResult('b64Input')">复制</button>
+              <span class="hint">Ctrl + Enter 编码</span>
+            </div>
           </div>
           <textarea id="b64Input" placeholder="粘贴文本或 Base64 字符串..."></textarea>
         </div>
@@ -465,14 +475,20 @@
             <div class="actions">
               <button class="btn btn-primary" onclick="b64Encode()">编码</button>
               <button class="btn btn-secondary" onclick="b64Decode()">解码</button>
-              <button class="btn-icon" onclick="copyResult('b64Input')">复制输入</button>
-              <button class="btn-icon" onclick="copyResult('b64Output')">复制输出</button>
+              <button class="btn-icon" onclick="swapIO('b64Input','b64Output')" title="交换输入输出">交换</button>
             </div>
           </div>
           <div class="line"></div>
         </div></div>
         <div class="panel panel-output" id="b64OutputPanel">
-          <div class="panel-header"><span class="label">输出</span></div>
+          <div class="panel-header">
+            <span class="label">输出</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="hint" id="b64MimeHint" style="display:none"></span>
+              <button class="btn-icon" onclick="copyB64DataUrl()">复制 URL</button>
+              <button class="btn-icon" onclick="copyResult('b64Output')">复制 Base64</button>
+            </div>
+          </div>
           <textarea id="b64Output" readonly placeholder="点击编码或解码按钮查看结果..."></textarea>
         </div>
       </div>
@@ -611,6 +627,32 @@ function switchTab(tab) {
   document.getElementById('tab-qr').style.display = tab === 'qr' ? 'flex' : 'none';
 }
 
+function swapIO(inputId, outputId) {
+  const inp = document.getElementById(inputId);
+  const out = document.getElementById(outputId);
+  if (!inp.value.trim() && !out.value.trim()) {
+    showToast('请先编码或解码后再交换');
+    return;
+  }
+  const tmp = inp.value;
+  inp.value = out.value;
+  out.value = tmp;
+  // Clear mime hint for Base64
+  const hint = document.getElementById('b64MimeHint');
+  if (hint) hint.style.display = 'none';
+  showToast('已交换输入和输出');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => {
+    t.classList.remove('show');
+    t.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 已复制到剪贴板';
+  }, 1600);
+}
+
 function copyResult(id) {
   const ta = document.getElementById(id);
   navigator.clipboard.writeText(ta.value).catch(() => { ta.select(); document.execCommand('copy'); });
@@ -633,6 +675,7 @@ function b64Encode() {
     const bytes = new TextEncoder().encode(document.getElementById('b64Input').value);
     let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
     document.getElementById('b64Output').value = btoa(bin);
+    document.getElementById('b64MimeHint').style.display = 'none';
   } catch(e) { document.getElementById('b64Output').value = 'Error: ' + e.message; }
 }
 function b64Decode() {
@@ -641,6 +684,39 @@ function b64Decode() {
     const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
     document.getElementById('b64Output').value = new TextDecoder().decode(bytes);
   } catch(e) { document.getElementById('b64Output').value = 'Error: ' + e.message + '\n请确认输入是有效的 Base64 字符串'; }
+}
+
+let b64FileMime = '';
+function handleB64File(input) {
+  const file = input.files[0];
+  if (!file) return;
+  b64FileMime = file.type || 'application/octet-stream';
+  const reader = new FileReader();
+  reader.onload = () => {
+    // reader.result is data:xxx;base64,YYY — strip the prefix
+    const b64 = reader.result.split(',')[1];
+    document.getElementById('b64Output').value = b64;
+    const hint = document.getElementById('b64MimeHint');
+    hint.textContent = b64FileMime;
+    hint.style.display = 'inline';
+    // Also set input to filename for reference
+    document.getElementById('b64Input').value = file.name;
+  };
+  reader.readAsDataURL(file);
+}
+function copyB64DataUrl() {
+  const b64 = document.getElementById('b64Output').value.trim();
+  if (!b64) return;
+  const mime = b64FileMime || 'application/octet-stream';
+  const dataUrl = `data:${mime};base64,${b64}`;
+  navigator.clipboard.writeText(dataUrl).catch(() => {});
+  const t = document.getElementById('toast');
+  t.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Data URL 已复制';
+  t.classList.add('show');
+  setTimeout(() => {
+    t.classList.remove('show');
+    t.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 已复制到剪贴板';
+  }, 1800);
 }
 
 // --- Color ---
